@@ -4,6 +4,7 @@ from discord.ext import commands
 import os
 from dotenv import load_dotenv
 import youtube_dl
+from typing import Dict, List
 
 
 load_dotenv()
@@ -22,7 +23,7 @@ ytdlFormatOptions = {
     'ignoreerrors': False,
     'logtostderr': False,
     'quiet': False,
-    'no_warnings': False,
+    'no_warnings': True,
     'default_search': 'auto',
     'source_address': '0.0.0.0'  # bind to ipv4 since ipv6 addresses cause issues sometimes
 }
@@ -72,27 +73,76 @@ async def leave(ctx):
         await ctx.send("uwaaaah... s-something went wrong")
 
 
-async def after_play():
-    await bot.change_presence(activity=None)
+class Session:
+    def __init__(self, voice_client):
+        print("Session start")
+        self.queue: List = []
+        self.voice_client = voice_client
+
+    async def add_to_queue(self, ctx, url):
+        message = await ctx.send("Downloading...")
+        filename, data = await YTDLSource.from_url(url, loop=bot.loop)
+        await message.edit(content="Downloading...done.")
+        self.queue.append({"filename": filename, "data": data})
+
+    async def start_playing(self, ctx):
+        song = self.queue[0]
+        loop = asyncio.get_event_loop()
+        async with ctx.typing():
+            self.voice_client.play(
+                discord.FFmpegPCMAudio(executable="ffmpeg.exe", source=song['filename']),
+                after=lambda e=None: loop.create_task(self.after_play(ctx, e)))
+        await bot.change_presence(
+            activity=discord.Activity(type=discord.ActivityType.listening, name=song['data']['title']))
+        await ctx.send(f"**Now playing**: {song['data']['title']}")
+
+    async def after_play(self, ctx, error):
+        if error:
+            raise error
+        self.queue.pop(0)
+        await bot.change_presence(activity=None)
+        song_list = []
+        for i in self.queue:
+            song_list.append(i['data']['title'])
+        songs = ', '.join(song_list)
+        print(f"Queue: {songs}")
+        loop = asyncio.get_event_loop()
+        # loop.create_task(ctx.send(f"Queue: {songs}"))
+        await ctx.send(f"Queue: {songs}")
+        if len(self.queue) > 0:
+            song = self.queue[0]
+            self.voice_client.play(
+                discord.FFmpegPCMAudio(executable="ffmpeg.exe", source=song["filename"]),
+                after=lambda e=None: loop.create_task(self.after_play(ctx, e)))
+            pass
+        else:
+            await bot.change_presence(activity=None)
+
+
+sessions: Dict[int, Session] = {}
 
 
 @bot.command(name='play')
 async def play(ctx, url):
-    try:
-        server = ctx.message.guild
-        voice_channel = server.voice_client
-        message = await ctx.send("y-yes! I will download it r-right away...")
-        # async with ctx.typing():
-        filename, data = await YTDLSource.from_url(url, loop=bot.loop)
-        await bot.change_presence(
-            activity=discord.Activity(type=discord.ActivityType.listening, name=data['title']))
-        voice_channel.play(
-            discord.FFmpegPCMAudio(executable="ffmpeg.exe", source=filename), after=lambda e: asyncio.run(after_play()))
-            # discord.FFmpegPCMAudio(executable="ffmpeg.exe", source=filename))
-        await message.edit(content=f"**p-playing** :sparkles:{data['title']}:sparkles:")
-    except Exception as err:
-        await ctx.send("Not connected to voice channel")
-        print(f"Error: {err=}")
+    server_id = ctx.guild.id
+    session = None
+    if server_id not in sessions:
+        if ctx.author.voice is None:
+            await ctx.send("y-you're not in any voice channel...")
+            return
+        channel = ctx.author.voice.channel
+        voice_client = await channel.connect()
+        if voice_client.is_connected():
+            session = Session(voice_client)
+            sessions[server_id] = session
+    else:
+        session = sessions[server_id]
+        if session.voice_client.channel != ctx.author.voice.channel:
+            await session.voice_client.move_to(ctx.author.voice.channel)
+
+    await session.add_to_queue(ctx, url)
+    if not session.voice_client.is_playing():
+        await session.start_playing(ctx)
 
 
 @bot.command(name='pause')
