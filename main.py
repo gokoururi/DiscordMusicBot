@@ -1,11 +1,9 @@
 import asyncio
-
 import discord
 from discord.ext import commands
 import os
 from dotenv import load_dotenv
 import youtube_dl
-import re
 
 
 load_dotenv()
@@ -29,7 +27,7 @@ ytdlFormatOptions = {
     'source_address': '0.0.0.0'  # bind to ipv4 since ipv6 addresses cause issues sometimes
 }
 
-ffmpegOptions = {
+ffmpeg_options = {
     'options':  '-vn'
 }
 
@@ -49,16 +47,9 @@ class YTDLSource(discord.PCMVolumeTransformer):
         data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=not stream))
         if 'entries' in data:
             data = data['entries'][0]
-        filename = data['title'] if stream else ytdl.prepare_filename(data)
-        return filename
-
-
-def get_song_name(filename):
-    song = re.search('(.*)-.*', filename)
-    if song:
-        return re.sub('_', " ", song.group(1))
-    else:
-        return f"Wakarimasen! {filename}"
+        filename = data['url'] if stream else ytdl.prepare_filename(data)
+        return filename, data
+        # return cls(await discord.FFmpegOpusAudio.from_probe(filename, **ffmpeg_options), data)
 
 
 @bot.command(name='join', help='Join channel')
@@ -81,15 +72,24 @@ async def leave(ctx):
         await ctx.send("uwaaaah... s-something went wrong")
 
 
+async def after_play():
+    await bot.change_presence(activity=None)
+
+
 @bot.command(name='play')
 async def play(ctx, url):
     try:
         server = ctx.message.guild
         voice_channel = server.voice_client
-        async with ctx.typing():
-            filename = await YTDLSource.from_url(url, loop=bot.loop)
-            voice_channel.play(discord.FFmpegPCMAudio(executable="ffmpeg.exe", source=filename))
-        await ctx.send(f"**p-playing** :sparkles:{get_song_name(filename)}:sparkles:")
+        message = await ctx.send("y-yes! I will download it r-right away...")
+        # async with ctx.typing():
+        filename, data = await YTDLSource.from_url(url, loop=bot.loop)
+        await bot.change_presence(
+            activity=discord.Activity(type=discord.ActivityType.listening, name=data['title']))
+        voice_channel.play(
+            discord.FFmpegPCMAudio(executable="ffmpeg.exe", source=filename), after=lambda e: asyncio.run(after_play()))
+            # discord.FFmpegPCMAudio(executable="ffmpeg.exe", source=filename))
+        await message.edit(content=f"**p-playing** :sparkles:{data['title']}:sparkles:")
     except Exception as err:
         await ctx.send("Not connected to voice channel")
         print(f"Error: {err=}")
@@ -118,6 +118,7 @@ async def stop(ctx):
     voice_client = ctx.message.guild.voice_client
     if voice_client.is_playing():
         voice_client.stop()
+        await bot.change_presence(activity=None)
     else:
         await ctx.send("s-stop? I wasn't doing anything!")
 
