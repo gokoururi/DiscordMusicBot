@@ -166,6 +166,7 @@ async def resume(ctx):
     else:
         await ctx.send("You're not very bright, are you?")
 
+
 @bot.command(name='skip')
 async def skip(ctx):
     await ctx.send("I don't feel like it")
@@ -179,6 +180,7 @@ async def stop(ctx):
         await bot.change_presence(activity=None)
     else:
         await ctx.send("I'll stop your existence.")
+
 
 if __name__ == '__main__':
     yt_dlp.utils.bug_reports_message = lambda: ''
