@@ -138,7 +138,11 @@ async def play(ctx, url):
             sessions[server_id] = session
     else:
         session = sessions[server_id]
-        if session.voice_client.channel != ctx.author.voice.channel:
+        if not session.voice_client.is_connected():
+            channel = ctx.author.voice.channel
+            voice_client = await channel.connect()
+            session.voice_client = voice_client
+        elif session.voice_client.channel != ctx.author.voice.channel:
             await session.voice_client.move_to(ctx.author.voice.channel)
 
     # await session.add_to_queue(ctx, url)
