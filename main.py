@@ -5,34 +5,7 @@ import os
 from dotenv import load_dotenv
 import youtube_dl
 from typing import Dict, List
-
-
-load_dotenv()
-DISCORDTOKEN = os.getenv("discordToken")
-
-intents = discord.Intents().all()
-client = discord.Client(intents=intents)
-bot = commands.Bot(command_prefix='!', intents=intents)
-
-youtube_dl.utils.bug_reports_message = lambda: ''
-ytdlFormatOptions = {
-    'format': 'bestaudio/best',
-    'restrictfilenames': True,
-    'noplaylist': True,
-    'nocheckcertificate': True,
-    'ignoreerrors': False,
-    'logtostderr': False,
-    'quiet': False,
-    'no_warnings': True,
-    'default_search': 'auto',
-    'source_address': '0.0.0.0'  # bind to ipv4 since ipv6 addresses cause issues sometimes
-}
-
-ffmpeg_options = {
-    'options':  '-vn'
-}
-
-ytdl = youtube_dl.YoutubeDL(ytdlFormatOptions)
+import time
 
 
 class YTDLSource(discord.PCMVolumeTransformer):
@@ -53,37 +26,41 @@ class YTDLSource(discord.PCMVolumeTransformer):
         # return cls(await discord.FFmpegOpusAudio.from_probe(filename, **ffmpeg_options), data)
 
 
-@bot.command(name='join', help='Join channel')
-async def join(ctx):
-    if not ctx.message.author.voice:
-        await ctx.send(f"${ctx.message.author}...you're not connected to a voice channel?? I don't now where to go.")
-        return
-    else:
-        channel = ctx.message.author.voice.channel
-    await channel.connect()
-    await ctx.guild.change_voice_state(channel=channel, self_mute=False, self_deaf=True)
-
-
-@bot.command(name='leave', help='Leave channel')
-async def leave(ctx):
-    voice_client = ctx.message.guild.voice_client
-    if voice_client.is_connected():
-        await voice_client.disconnect()
-    else:
-        await ctx.send("uwaaaah... s-something went wrong")
-
-
 class Session:
     def __init__(self, voice_client):
         print("Session start")
         self.queue: List = []
+        self.download_queue: List = []
+        self.downloading = False
         self.voice_client = voice_client
 
-    async def add_to_queue(self, ctx, url):
+    async def add_to_download_queue(self, ctx, url):
         message = await ctx.send("Downloading...")
+        self.download_queue.append({
+            "message": message,
+            "url": url
+        })
+        if not self.downloading:
+            await self.start_download(ctx)
+            if not self.voice_client.is_playing():
+                await self.start_playing(ctx)
+
+    async def start_download(self, ctx):
+        print("Starting download")
+        self.downloading = True
+        download = self.download_queue[0]
+        await self.add_to_queue(ctx, download["message"], download["url"])
+
+    async def add_to_queue(self, ctx, message, url):
         filename, data = await YTDLSource.from_url(url, loop=bot.loop)
         await message.edit(content="Downloading...done.")
         self.queue.append({"filename": filename, "data": data})
+        self.download_queue.pop(0)
+        self.downloading = False
+        print("Download Finished")
+        if len(self.download_queue) > 0:
+            loop = asyncio.get_event_loop()
+            loop.create_task(self.start_download(ctx))
 
     async def start_playing(self, ctx):
         song = self.queue[0]
@@ -119,7 +96,32 @@ class Session:
             await bot.change_presence(activity=None)
 
 
-sessions: Dict[int, Session] = {}
+load_dotenv()
+DISCORDTOKEN = os.getenv("discordToken")
+
+intents = discord.Intents().all()
+client = discord.Client(intents=intents)
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+
+@bot.command(name='join', help='Join channel')
+async def join(ctx):
+    if not ctx.message.author.voice:
+        await ctx.send(f"${ctx.message.author}...you're not connected to a voice channel?? I don't now where to go.")
+        return
+    else:
+        channel = ctx.message.author.voice.channel
+    await channel.connect()
+    await ctx.guild.change_voice_state(channel=channel, self_mute=False, self_deaf=True)
+
+
+@bot.command(name='leave', help='Leave channel')
+async def leave(ctx):
+    voice_client = ctx.message.guild.voice_client
+    if voice_client.is_connected():
+        await voice_client.disconnect()
+    else:
+        await ctx.send("I don't feel like it.")
 
 
 @bot.command(name='play')
@@ -128,7 +130,7 @@ async def play(ctx, url):
     session = None
     if server_id not in sessions:
         if ctx.author.voice is None:
-            await ctx.send("y-you're not in any voice channel...")
+            await ctx.send("Go join a voice channel first, idiot.")
             return
         channel = ctx.author.voice.channel
         voice_client = await channel.connect()
@@ -140,9 +142,8 @@ async def play(ctx, url):
         if session.voice_client.channel != ctx.author.voice.channel:
             await session.voice_client.move_to(ctx.author.voice.channel)
 
-    await session.add_to_queue(ctx, url)
-    if not session.voice_client.is_playing():
-        await session.start_playing(ctx)
+    # await session.add_to_queue(ctx, url)
+    await session.add_to_download_queue(ctx, url)
 
 
 @bot.command(name='pause')
@@ -151,7 +152,7 @@ async def pause(ctx):
     if voice_client.is_playing():
         voice_client.pause()
     else:
-        await ctx.send("I-I'm not playing anything r-right now.")
+        await ctx.send("Whats wrong with you?")
 
 
 @bot.command(name='resume')
@@ -160,7 +161,7 @@ async def resume(ctx):
     if voice_client.is_paused():
         voice_client.resume()
     else:
-        await ctx.send("What d-do you mean 'resume'? I wasn't p-playing anything.")
+        await ctx.send("You're not very bright, are you?")
 
 
 @bot.command(name='stop')
@@ -170,7 +171,30 @@ async def stop(ctx):
         voice_client.stop()
         await bot.change_presence(activity=None)
     else:
-        await ctx.send("s-stop? I wasn't doing anything!")
+        await ctx.send("I'll stop your existence.")
 
 if __name__ == '__main__':
+
+    youtube_dl.utils.bug_reports_message = lambda: ''
+    ytdlFormatOptions = {
+        'format': 'bestaudio/best',
+        'restrictfilenames': True,
+        'noplaylist': True,
+        'nocheckcertificate': True,
+        'ignoreerrors': False,
+        'logtostderr': False,
+        'quiet': False,
+        'no_warnings': True,
+        'default_search': 'auto',
+        'source_address': '0.0.0.0'  # bind to ipv4 since ipv6 addresses cause issues sometimes
+    }
+
+    ffmpeg_options = {
+        'options': '-vn'
+    }
+
+    ytdl = youtube_dl.YoutubeDL(ytdlFormatOptions)
+
+    sessions: Dict[int, Session] = {}
+
     bot.run(DISCORDTOKEN)
