@@ -3,9 +3,8 @@ import discord
 from discord.ext import commands
 import os
 from dotenv import load_dotenv
-import youtube_dl
+import yt_dlp
 from typing import Dict, List
-import time
 
 
 class YTDLSource(discord.PCMVolumeTransformer):
@@ -174,7 +173,7 @@ async def stop(ctx):
         await ctx.send("I'll stop your existence.")
 
 if __name__ == '__main__':
-    youtube_dl.utils.bug_reports_message = lambda: ''
+    yt_dlp.utils.bug_reports_message = lambda: ''
     ytdlFormatOptions = {
         'format': 'bestaudio/best',
         'restrictfilenames': True,
@@ -183,13 +182,13 @@ if __name__ == '__main__':
         'ignoreerrors': False,
         'logtostderr': False,
         'quiet': False,
-        'no_warnings': True,
+        'no_warnings': False,
         'default_search': 'auto',
         'source_address': '0.0.0.0'  # bind to ipv4 since ipv6 addresses cause issues sometimes
     }
     ffmpeg_options = {
         'options': '-vn'
     }
-    ytdl = youtube_dl.YoutubeDL(ytdlFormatOptions)
+    ytdl = yt_dlp.YoutubeDL(ytdlFormatOptions)
     sessions: Dict[int, Session] = {}
     bot.run(DISCORDTOKEN)
