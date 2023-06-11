@@ -174,7 +174,6 @@ async def stop(ctx):
         await ctx.send("I'll stop your existence.")
 
 if __name__ == '__main__':
-
     youtube_dl.utils.bug_reports_message = lambda: ''
     ytdlFormatOptions = {
         'format': 'bestaudio/best',
@@ -188,13 +187,9 @@ if __name__ == '__main__':
         'default_search': 'auto',
         'source_address': '0.0.0.0'  # bind to ipv4 since ipv6 addresses cause issues sometimes
     }
-
     ffmpeg_options = {
         'options': '-vn'
     }
-
     ytdl = youtube_dl.YoutubeDL(ytdlFormatOptions)
-
     sessions: Dict[int, Session] = {}
-
     bot.run(DISCORDTOKEN)
