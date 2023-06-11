@@ -31,7 +31,8 @@ class Session:
         self.queue: List = []
         self.download_queue: List = []
         self.downloading = False
-        self.voice_client = voice_client
+        self.voice_client: discord.voice_client.VoiceClient = voice_client
+        self.maintenance_task = None
 
     async def add_to_download_queue(self, ctx, url):
         message = await ctx.send("Downloading...")
@@ -71,10 +72,15 @@ class Session:
         await bot.change_presence(
             activity=discord.Activity(type=discord.ActivityType.listening, name=song['data']['title']))
         await ctx.send(f"**Now playing**: {song['data']['title']}")
+        if not self.maintenance_task:
+            loop = asyncio.get_event_loop()
+            self.maintenance_task = loop.create_task(self.maintenance())
 
     async def after_play(self, ctx, error):
         if error:
             raise error
+        if not self.voice_client.is_connected():
+            return
         self.queue.pop(0)
         await bot.change_presence(activity=None)
         song_list = []
@@ -93,6 +99,19 @@ class Session:
             pass
         else:
             await bot.change_presence(activity=None)
+
+    async def maintenance(self):
+        while True:
+            await asyncio.sleep(10)
+            print(f"Currently in {self.voice_client.channel.name}; Status: Playing {self.voice_client.is_playing()}; "
+                  f"Members in VC: {len(self.voice_client.channel.members)}")
+            if len(self.voice_client.channel.members) <= 1 and self.voice_client.is_playing():
+                print(f"Nobody in VC {self.voice_client.channel.name}. Disconnecting.")
+                self.voice_client.stop()
+                await self.voice_client.disconnect()
+                await bot.change_presence(activity=None)
+                self.maintenance_task = None
+                break
 
 
 load_dotenv()
