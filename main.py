@@ -34,8 +34,9 @@ class Session:
         self.voice_client: discord.voice_client.VoiceClient = voice_client
         self.maintenance_task = None
 
-    async def add_to_download_queue(self, ctx, url):
-        message = await ctx.send("Downloading...")
+    async def add_to_download_queue(self, ctx: discord.ext.commands.context.Context, url):
+        message = ctx.message
+        await message.add_reaction("⬇️")
         self.download_queue.append({
             "message": message,
             "url": url
@@ -51,9 +52,10 @@ class Session:
         download = self.download_queue[0]
         await self.add_to_queue(ctx, download["message"], download["url"])
 
-    async def add_to_queue(self, ctx, message, url):
+    async def add_to_queue(self, ctx: discord.ext.commands.context.Context, message: discord.message.Message, url):
         filename, data = await YTDLSource.from_url(url, loop=bot.loop)
-        await message.edit(content="Downloading...done.")
+        await message.add_reaction("☑️")
+        await message.remove_reaction("⬇️", bot.user)
         self.queue.append({"filename": filename, "data": data})
         self.download_queue.pop(0)
         self.downloading = False
