@@ -67,7 +67,7 @@ class Session:
         loop = asyncio.get_event_loop()
         async with ctx.typing():
             self.voice_client.play(
-                discord.FFmpegPCMAudio(executable="ffmpeg.exe", source=song['filename']),
+                discord.FFmpegPCMAudio(executable=FFMPEG_EXECUTABLE, source=song['filename']),
                 after=lambda e=None: loop.create_task(self.after_play(ctx, e)))
         await bot.change_presence(
             activity=discord.Activity(type=discord.ActivityType.listening, name=song['data']['title']))
@@ -94,7 +94,7 @@ class Session:
         if len(self.queue) > 0:
             song = self.queue[0]
             self.voice_client.play(
-                discord.FFmpegPCMAudio(executable="ffmpeg.exe", source=song["filename"]),
+                discord.FFmpegPCMAudio(executable=FFMPEG_EXECUTABLE, source=song["filename"]),
                 after=lambda e=None: loop.create_task(self.after_play(ctx, e)))
             pass
         else:
@@ -115,11 +115,13 @@ class Session:
 
 
 load_dotenv()
-DISCORDTOKEN = os.getenv("discordToken")
+DISCORDTOKEN = os.getenv("discord_token")
+FFMPEG_EXECUTABLE = os.getenv("ffmpeg_executable")
+COMMAND_PREFIX = os.getenv("command_prefix")
 
 intents = discord.Intents().all()
 client = discord.Client(intents=intents)
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix=COMMAND_PREFIX, intents=intents)
 
 
 @bot.command(name='join', help='Join channel')
