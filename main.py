@@ -107,7 +107,7 @@ class Session:
             await asyncio.sleep(10)
             print(f"Currently in {self.voice_client.channel.name}; Status: Playing {self.voice_client.is_playing()}; "
                   f"Members in VC: {len(self.voice_client.channel.members)}")
-            if len(self.voice_client.channel.members) <= 1 and self.voice_client.is_playing():
+            if len(self.voice_client.channel.members) <= 1:
                 print(f"Nobody in VC {self.voice_client.channel.name}. Disconnecting.")
                 self.voice_client.stop()
                 await self.voice_client.disconnect()
