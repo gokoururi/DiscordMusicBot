@@ -46,7 +46,7 @@ class Session:
             if not self.voice_client.is_playing():
                 await self.start_playing(ctx)
 
-    async def start_download(self, ctx):
+    async def start_download(self, ctx: discord.ext.commands.context.Context):
         print("Starting download")
         self.downloading = True
         download = self.download_queue[0]
@@ -64,7 +64,7 @@ class Session:
             loop = asyncio.get_event_loop()
             loop.create_task(self.start_download(ctx))
 
-    async def start_playing(self, ctx):
+    async def start_playing(self, ctx: discord.ext.commands.context.Context):
         song = self.queue[0]
         loop = asyncio.get_event_loop()
         async with ctx.typing():
@@ -78,7 +78,7 @@ class Session:
             loop = asyncio.get_event_loop()
             self.maintenance_task = loop.create_task(self.maintenance())
 
-    async def after_play(self, ctx, error):
+    async def after_play(self, ctx: discord.ext.commands.context.Context, error):
         if error:
             raise error
         if not self.voice_client.is_connected():
@@ -127,7 +127,7 @@ bot = commands.Bot(command_prefix=COMMAND_PREFIX, intents=intents)
 
 
 @bot.command(name='join', help='Join channel')
-async def join(ctx):
+async def join(ctx: discord.ext.commands.context.Context):
     if not ctx.message.author.voice:
         await ctx.send(f"${ctx.message.author}...you're not connected to a voice channel?? I don't now where to go.")
         return
@@ -138,7 +138,7 @@ async def join(ctx):
 
 
 @bot.command(name='leave', help='Leave channel')
-async def leave(ctx):
+async def leave(ctx: discord.ext.commands.context.Context):
     voice_client = ctx.message.guild.voice_client
     if voice_client.is_connected():
         await voice_client.disconnect()
@@ -147,7 +147,7 @@ async def leave(ctx):
 
 
 @bot.command(name='play')
-async def play(ctx, url):
+async def play(ctx: discord.ext.commands.context.Context, url):
     server_id = ctx.guild.id
     session = None
     if server_id not in sessions:
@@ -173,7 +173,7 @@ async def play(ctx, url):
 
 
 @bot.command(name='pause')
-async def pause(ctx):
+async def pause(ctx: discord.ext.commands.context.Context):
     voice_client = ctx.message.guild.voice_client
     if voice_client.is_playing():
         voice_client.pause()
@@ -182,7 +182,7 @@ async def pause(ctx):
 
 
 @bot.command(name='resume')
-async def resume(ctx):
+async def resume(ctx: discord.ext.commands.context.Context):
     voice_client = ctx.message.guild.voice_client
     if voice_client.is_paused():
         voice_client.resume()
@@ -191,12 +191,12 @@ async def resume(ctx):
 
 
 @bot.command(name='skip')
-async def skip(ctx):
+async def skip(ctx: discord.ext.commands.context.Context):
     await ctx.send("I don't feel like it")
 
 
 @bot.command(name='stop')
-async def stop(ctx):
+async def stop(ctx: discord.ext.commands.context.Context):
     voice_client = ctx.message.guild.voice_client
     if voice_client.is_playing():
         voice_client.stop()
