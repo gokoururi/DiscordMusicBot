@@ -1,5 +1,6 @@
 import asyncio
 import discord
+from discord import Message
 from discord.ext import commands
 import os
 from dotenv import load_dotenv
@@ -33,14 +34,16 @@ class Session:
         self.downloading = False
         self.voice_client: discord.voice_client.VoiceClient = voice_client
         self.maintenance_task = None
+        self.last_playing_message = None
 
     async def add_to_download_queue(self, ctx: discord.ext.commands.context.Context, url):
-        message = ctx.message
+        message: Message = ctx.message
         await message.add_reaction("⬇️")
         self.download_queue.append({
             "message": message,
             "url": url
         })
+        self.last_playing_message = None
         if not self.downloading:
             await self.start_download(ctx)
             if not self.voice_client.is_playing():
@@ -60,20 +63,42 @@ class Session:
         self.download_queue.pop(0)
         self.downloading = False
         print("Download Finished")
+        await self.print_playing_and_queue(ctx)
         if len(self.download_queue) > 0:
             loop = asyncio.get_event_loop()
             loop.create_task(self.start_download(ctx))
 
+    async def print_playing_and_queue(self, ctx: discord.ext.commands.context.Context):
+        message = None
+        content = ""
+        for index, song in enumerate(self.queue):
+            if index == 0:
+                content += f"**Now playing**: {song['data']['title']}"
+                continue
+            if index == 1:
+                content += "\nQueue:"
+            content += f"\n• {song['data']['title']}"
+
+        if self.last_playing_message:
+            message = self.last_playing_message
+        ctx.channel.history()
+        last_channel_message: Message = await (ctx.channel.history(limit=1)).__anext__()
+        if last_channel_message.author.id == bot.user.id:
+            message = last_channel_message
+
+        if message:
+            await self.last_playing_message.edit(content=content)
+        else:
+            self.last_playing_message = await ctx.send(content)
+
     async def start_playing(self, ctx: discord.ext.commands.context.Context):
         song = self.queue[0]
         loop = asyncio.get_event_loop()
-        async with ctx.typing():
-            self.voice_client.play(
-                discord.FFmpegPCMAudio(executable=FFMPEG_EXECUTABLE, source=song['filename']),
-                after=lambda e=None: loop.create_task(self.after_play(ctx, e)))
+        self.voice_client.play(
+            discord.FFmpegPCMAudio(executable=FFMPEG_EXECUTABLE, source=song['filename']),
+            after=lambda e=None: loop.create_task(self.after_play(ctx, e)))
         await bot.change_presence(
             activity=discord.Activity(type=discord.ActivityType.listening, name=song['data']['title']))
-        await ctx.send(f"**Now playing**: {song['data']['title']}")
         if not self.maintenance_task:
             loop = asyncio.get_event_loop()
             self.maintenance_task = loop.create_task(self.maintenance())
@@ -92,7 +117,8 @@ class Session:
         print(f"Queue: {songs}")
         loop = asyncio.get_event_loop()
         # loop.create_task(ctx.send(f"Queue: {songs}"))
-        await ctx.send(f"Queue: {songs}")
+        # await ctx.send(f"Queue: {songs}")
+        await self.print_playing_and_queue(ctx)
         if len(self.queue) > 0:
             song = self.queue[0]
             self.voice_client.play(
@@ -199,6 +225,7 @@ async def skip(ctx: discord.ext.commands.context.Context):
 async def stop(ctx: discord.ext.commands.context.Context):
     voice_client = ctx.message.guild.voice_client
     if voice_client.is_playing():
+        sessions[ctx.guild.id].queue = []
         voice_client.stop()
         await bot.change_presence(activity=None)
     else:
