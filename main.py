@@ -53,9 +53,9 @@ class Session:
         print("Starting download")
         self.downloading = True
         download = self.download_queue[0]
-        await self.add_to_queue(ctx, download["message"], download["url"])
+        await self.download_and_add_to_queue(ctx, download["message"], download["url"])
 
-    async def add_to_queue(self, ctx: discord.ext.commands.context.Context, message: discord.message.Message, url):
+    async def download_and_add_to_queue(self, ctx: discord.ext.commands.context.Context, message: discord.message.Message, url):
         filename, data = await YTDLSource.from_url(url, loop=bot.loop)
         await message.add_reaction("☑️")
         await message.remove_reaction("⬇️", bot.user)
@@ -100,7 +100,6 @@ class Session:
         await bot.change_presence(
             activity=discord.Activity(type=discord.ActivityType.listening, name=song['data']['title']))
         if not self.maintenance_task:
-            loop = asyncio.get_event_loop()
             self.maintenance_task = loop.create_task(self.maintenance())
 
     async def after_play(self, ctx: discord.ext.commands.context.Context, error):
@@ -108,6 +107,9 @@ class Session:
             raise error
         if not self.voice_client.is_connected():
             return
+        if len(self.queue) <= 0:
+            return
+
         self.queue.pop(0)
         await bot.change_presence(activity=None)
         song_list = []
@@ -176,12 +178,13 @@ async def leave(ctx: discord.ext.commands.context.Context):
 async def play(ctx: discord.ext.commands.context.Context, url):
     server_id = ctx.guild.id
     session = None
+
+    if not ctx.author.voice:
+        await ctx.send("You need to join a voice channel first.")
+        return
+
     if server_id not in sessions:
-        if ctx.author.voice is None:
-            await ctx.send("Go join a voice channel first, idiot.")
-            return
-        channel = ctx.author.voice.channel
-        voice_client = await channel.connect()
+        voice_client = await ctx.author.voice.channel.connect()
         if voice_client.is_connected():
             session = Session(voice_client)
             sessions[server_id] = session
