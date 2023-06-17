@@ -224,8 +224,31 @@ async def resume(ctx: discord.ext.commands.context.Context):
 
 
 @bot.command(name='skip')
-async def skip(ctx: discord.ext.commands.context.Context):
-    await ctx.send("I don't feel like it")
+async def skip(ctx: discord.ext.commands.context.Context, *, song=None):
+    server_id = ctx.guild.id
+    if server_id not in sessions:
+        await ctx.send("You're not in any voice channel")
+        return
+    session = sessions[server_id]
+    sessions[server_id].last_playing_message = None
+    if not session.voice_client.is_playing():
+        await ctx.send("I'm not currently playing naything")
+        return
+    if not song:
+        session.voice_client.stop()
+    else:
+        session.queue.pop(int(song))
+    await ctx.message.add_reaction("☑️")
+
+
+@bot.command(name='queue')
+async def queue(ctx: discord.ext.commands.context.Context):
+    server_id = ctx.guild.id
+    if server_id not in sessions:
+        await ctx.send("I can't do that")
+        return
+    sessions[server_id].last_playing_message = None
+    await sessions[server_id].print_playing_and_queue(ctx)
 
 
 @bot.command(name='stop')
