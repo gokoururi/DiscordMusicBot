@@ -1,4 +1,5 @@
+videos/
 .env
+venv
 ffmpeg.exe
-
 .idea

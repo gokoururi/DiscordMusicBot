@@ -148,6 +148,8 @@ load_dotenv()
 DISCORDTOKEN = os.getenv("discord_token")
 FFMPEG_EXECUTABLE = os.getenv("ffmpeg_executable")
 COMMAND_PREFIX = os.getenv("command_prefix")
+SAVE_PATH = os.getenv("save_path")
+THUMBNAIL_URL = os.getenv("thumbnail_url")
 
 intents = discord.Intents().all()
 client = discord.Client(intents=intents)
@@ -247,7 +249,10 @@ if __name__ == '__main__':
         'quiet': False,
         'no_warnings': False,
         'default_search': 'auto',
-        'source_address': '0.0.0.0'  # bind to ipv4 since ipv6 addresses cause issues sometimes
+        'source_address': '0.0.0.0',  # bind to ipv4 since ipv6 addresses cause issues sometimes
+        'outtmpl': {
+            "default": f"{SAVE_PATH}/%(title)s.%(ext)s"
+        }
     }
     ffmpeg_options = {
         'options': '-vn'
