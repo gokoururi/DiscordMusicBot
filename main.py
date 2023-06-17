@@ -55,7 +55,7 @@ class Session:
         download = self.download_queue[0]
         await self.download_and_add_to_queue(ctx, download["message"], download["url"])
 
-    async def download_and_add_to_queue(self, ctx: discord.ext.commands.context.Context, message: discord.message.Message, url):
+    async def download_and_add_to_queue(self, ctx: discord.ext.commands.context.Context, message: Message, url):
         filename, data = await YTDLSource.from_url(url, loop=bot.loop)
         await message.add_reaction("☑️")
         await message.remove_reaction("⬇️", bot.user)
@@ -63,21 +63,22 @@ class Session:
         self.download_queue.pop(0)
         self.downloading = False
         print("Download Finished")
-        await self.print_playing_and_queue(ctx)
         if len(self.download_queue) > 0:
             loop = asyncio.get_event_loop()
             loop.create_task(self.start_download(ctx))
 
     async def print_playing_and_queue(self, ctx: discord.ext.commands.context.Context):
         message = None
-        content = ""
+        queue_content = ""
+        embed = discord.Embed(title=None, description=None, color=discord.Color.teal())
+        embed.set_thumbnail(url=THUMBNAIL_URL)
         for index, song in enumerate(self.queue):
             if index == 0:
-                content += f"**Now playing**: {song['data']['title']}"
+                embed.add_field(name="Now playing", value=f"{song['data']['title']}", inline=False)
                 continue
-            if index == 1:
-                content += "\nQueue:"
-            content += f"\n• {song['data']['title']}"
+            queue_content += f"\n〖{index}〗 {song['data']['title']}"
+        if len(self.queue) > 1:
+            embed.add_field(name="Queue", value=queue_content, inline=False)
 
         if self.last_playing_message:
             message = self.last_playing_message
@@ -87,9 +88,9 @@ class Session:
             message = last_channel_message
 
         if message:
-            await self.last_playing_message.edit(content=content)
+            await self.last_playing_message.edit(embed=embed)
         else:
-            self.last_playing_message = await ctx.send(content)
+            self.last_playing_message = await ctx.send(embed=embed)
 
     async def start_playing(self, ctx: discord.ext.commands.context.Context):
         song = self.queue[0]
@@ -97,6 +98,7 @@ class Session:
         self.voice_client.play(
             discord.FFmpegPCMAudio(executable=FFMPEG_EXECUTABLE, source=song['filename']),
             after=lambda e=None: loop.create_task(self.after_play(ctx, e)))
+        await self.print_playing_and_queue(ctx)
         await bot.change_presence(
             activity=discord.Activity(type=discord.ActivityType.listening, name=song['data']['title']))
         if not self.maintenance_task:
