@@ -99,8 +99,6 @@ class Session:
             discord.FFmpegPCMAudio(executable=FFMPEG_EXECUTABLE, source=song['filename']),
             after=lambda e=None: loop.create_task(self.after_play(ctx, e)))
         await self.print_playing_and_queue(ctx)
-        await bot.change_presence(
-            activity=discord.Activity(type=discord.ActivityType.listening, name=song['data']['title']))
         if not self.maintenance_task:
             self.maintenance_task = loop.create_task(self.maintenance())
 
@@ -113,7 +111,6 @@ class Session:
             return
 
         self.queue.pop(0)
-        await bot.change_presence(activity=None)
         song_list = []
         for i in self.queue:
             song_list.append(i['data']['title'])
@@ -129,8 +126,6 @@ class Session:
                 discord.FFmpegPCMAudio(executable=FFMPEG_EXECUTABLE, source=song["filename"]),
                 after=lambda e=None: loop.create_task(self.after_play(ctx, e)))
             pass
-        else:
-            await bot.change_presence(activity=None)
 
     async def maintenance(self):
         while True:
@@ -141,7 +136,6 @@ class Session:
                 print(f"Nobody in VC {self.voice_client.channel.name}. Disconnecting.")
                 self.voice_client.stop()
                 await self.voice_client.disconnect()
-                await bot.change_presence(activity=None)
                 self.maintenance_task = None
                 break
 
@@ -257,7 +251,6 @@ async def stop(ctx: discord.ext.commands.context.Context):
     if voice_client.is_playing():
         sessions[ctx.guild.id].queue = []
         voice_client.stop()
-        await bot.change_presence(activity=None)
     else:
         await ctx.send("I'll stop your existence.")
 
