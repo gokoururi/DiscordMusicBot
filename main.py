@@ -107,10 +107,12 @@ class Session:
             raise error
         if not self.voice_client.is_connected():
             return
+
+        self.queue.pop(0)
+
         if len(self.queue) <= 0:
             return
 
-        self.queue.pop(0)
         song_list = []
         for i in self.queue:
             song_list.append(i['data']['title'])
