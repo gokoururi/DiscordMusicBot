@@ -35,6 +35,7 @@ class Session:
         self.voice_client: discord.voice_client.VoiceClient = voice_client
         self.maintenance_task = None
         self.last_playing_message = None
+        self.loop_mode = None
 
     async def add_to_download_queue(self, ctx: discord.ext.commands.context.Context, url):
         message: Message = ctx.message
@@ -72,13 +73,20 @@ class Session:
         queue_content = ""
         embed = discord.Embed(title=None, description=None, color=discord.Color.teal())
         embed.set_thumbnail(url=THUMBNAIL_URL)
+        now_playing_prefix = ""
+        if self.loop_mode == "one":
+            now_playing_prefix = "🔁 "
+
         for index, song in enumerate(self.queue):
             if index == 0:
-                embed.add_field(name="Now playing", value=f"{song['data']['title']}", inline=False)
+                embed.add_field(name="Now playing", value=f"{now_playing_prefix}{song['data']['title']}", inline=False)
                 continue
             queue_content += f"\n〖{index}〗 {song['data']['title']}"
         if len(self.queue) > 1:
             embed.add_field(name="Queue", value=queue_content, inline=False)
+
+        if self.loop_mode:
+            embed.add_field(name="Loop mode", value=self.loop_mode)
 
         if self.last_playing_message:
             message = self.last_playing_message
@@ -108,20 +116,17 @@ class Session:
         if not self.voice_client.is_connected():
             return
 
-        self.queue.pop(0)
+        if self.loop_mode == "all":
+            self.queue.append(self.queue[0])
+            self.queue.pop(0)
+        elif not self.loop_mode:
+            self.queue.pop(0)
 
         if len(self.queue) <= 0:
             return
 
-        song_list = []
-        for i in self.queue:
-            song_list.append(i['data']['title'])
-        songs = ', '.join(song_list)
-        print(f"Queue: {songs}")
-        loop = asyncio.get_event_loop()
-        # loop.create_task(ctx.send(f"Queue: {songs}"))
-        # await ctx.send(f"Queue: {songs}")
         await self.print_playing_and_queue(ctx)
+        loop = asyncio.get_event_loop()
         if len(self.queue) > 0:
             song = self.queue[0]
             self.voice_client.play(
@@ -237,6 +242,24 @@ async def skip(ctx: discord.ext.commands.context.Context, *, song=None):
     await ctx.message.add_reaction("☑️")
 
 
+@bot.command(name='loop')
+async def loop(ctx: discord.ext.commands.Context, *, mode="one"):
+    server_id = ctx.guild.id
+    if server_id not in sessions:
+        await ctx.send("You're not in any voice channel")
+        return
+    session = sessions[server_id]
+    if mode == "one" or mode == "all":
+        session.loop_mode = mode
+    elif mode == "stop":
+        session.loop_mode = None
+    else:
+        await ctx.send(f"Invalid loop mode '{mode}'")
+        return
+
+    await ctx.message.add_reaction("☑️")
+
+
 @bot.command(name='queue')
 async def queue(ctx: discord.ext.commands.context.Context):
     server_id = ctx.guild.id
@@ -252,6 +275,7 @@ async def stop(ctx: discord.ext.commands.context.Context):
     voice_client = ctx.message.guild.voice_client
     if voice_client.is_playing():
         sessions[ctx.guild.id].queue = []
+        sessions[ctx.guild.id].loop_mode = None
         voice_client.stop()
     else:
         await ctx.send("I'll stop your existence.")
