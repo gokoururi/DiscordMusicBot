@@ -180,7 +180,7 @@ async def leave(ctx: discord.ext.commands.context.Context):
 
 
 @bot.command(name='play')
-async def play(ctx: discord.ext.commands.context.Context, url):
+async def play(ctx: discord.ext.commands.context.Context, *urls):
     server_id = ctx.guild.id
     session = None
 
@@ -203,7 +203,8 @@ async def play(ctx: discord.ext.commands.context.Context, url):
             await session.voice_client.move_to(ctx.author.voice.channel)
 
     # await session.add_to_queue(ctx, url)
-    await session.add_to_download_queue(ctx, url)
+    for url in urls:
+        await session.add_to_download_queue(ctx, url)
 
 
 @bot.command(name='pause')
