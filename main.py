@@ -178,6 +178,13 @@ async def leave(ctx: discord.ext.commands.context.Context):
     else:
         await ctx.send("I don't feel like it.")
 
+@bot.command(name="playlocal")
+async def playlocal(ctx, filename):
+        loop = asyncio.get_event_loop()
+        server_id = ctx.guild.id
+        session = sessions[server_id]
+        session.voice_client.play(
+            discord.FFmpegPCMAudio(executable=FFMPEG_EXECUTABLE, source=filename))
 
 @bot.command(name='play')
 async def play(ctx: discord.ext.commands.context.Context, *urls):
