@@ -3,3 +3,5 @@ videos/
 venv
 ffmpeg.exe
 .idea
+database/*.json
+__pycache__
