@@ -174,7 +174,7 @@ async def join(ctx: discord.ext.commands.context.Context):
 async def leave(ctx: discord.ext.commands.context.Context):
     voice_client = ctx.message.guild.voice_client
     if voice_client.is_connected():
-        await voice_client.disconnect()
+        await voice_client.disconnect(force=False)
     else:
         await ctx.send("I don't feel like it.")
 
@@ -292,7 +292,7 @@ async def stop(ctx: discord.ext.commands.context.Context):
 if __name__ == '__main__':
     yt_dlp.utils.bug_reports_message = lambda: ''
     ytdlFormatOptions = {
-        'format': 'bestaudio/best',
+        'format': 'bestvideo+bestaudio/best',
         'restrictfilenames': True,
         'noplaylist': True,
         'nocheckcertificate': True,

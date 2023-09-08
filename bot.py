@@ -11,7 +11,6 @@ load_dotenv()
 DISCORDTOKEN = os.getenv("discord_token")
 FFMPEG_EXECUTABLE = os.getenv("ffmpeg_executable")
 COMMAND_PREFIX = os.getenv("command_prefix")
-SAVE_PATH = os.getenv("save_path")
 THUMBNAIL_URL = os.getenv("thumbnail_url")
 
 databaseDir = f"{os.path.dirname(__file__)}/database"
@@ -34,10 +33,10 @@ async def on_ready():
 async def setinfo(interaction: discord.Interaction):
     await InfoChannel(db).set(interaction)
 
-@bot.tree.command(name="play", description="Bot will download provided youtube video and play it back in your current voice channel.")
+@bot.tree.command(name="play", description="Play youtube video in voice channel")
 @app_commands.describe(youtube_url = "URL to youtube video you want to play")
 async def play(interaction: discord.Interaction, youtube_url: str):
-    player: musicPlayer.Player = musicPlayer.getPlayer(interaction.guild.id, db)
+    player: musicPlayer.Player = musicPlayer.getPlayer(interaction.guild, bot, db)
     await player.play(interaction, youtube_url)
 
 bot.run(DISCORDTOKEN)
