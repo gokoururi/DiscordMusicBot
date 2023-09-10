@@ -23,6 +23,9 @@ bot = commands.Bot(command_prefix=COMMAND_PREFIX, intents=discord.Intents.all())
 @bot.event
 async def on_ready():
     print("Bot is running")
+    for guild in bot.guilds:
+        await musicPlayer.getPlayer(FFMPEG_EXECUTABLE, guild, bot, db).controls.draw()
+
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")
@@ -36,7 +39,7 @@ async def setinfo(interaction: discord.Interaction):
 @bot.tree.command(name="play", description="Play youtube video in voice channel")
 @app_commands.describe(youtube_url = "URL to youtube video you want to play")
 async def play(interaction: discord.Interaction, youtube_url: str):
-    player: musicPlayer.Player = musicPlayer.getPlayer(interaction.guild, bot, db)
-    await player.play(interaction, youtube_url)
+    player: musicPlayer.Player = musicPlayer.getPlayer(FFMPEG_EXECUTABLE, interaction.guild, bot, db)
+    await player.addVideo(interaction, youtube_url)
 
 bot.run(DISCORDTOKEN)
