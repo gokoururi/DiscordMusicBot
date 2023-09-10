@@ -3,7 +3,7 @@ from typing import Any, Coroutine
 from discord.interactions import Interaction
 import yt_dlp
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta
 from discord import enums, errors, ui, voice_client, ButtonStyle, Color, Embed, FFmpegPCMAudio, Guild, Interaction, Message, PCMVolumeTransformer, TextChannel
 from discord.ext import commands
 from tinydb import TinyDB, Query
@@ -42,11 +42,28 @@ class ControlsButtonStop(ui.Button):
         await interaction.response.send_message("Stop", ephemeral=True)
 
 class ControlsButtonPause(ui.Button):
-    def __init__(self):
-        super().__init__(style=ButtonStyle.gray, label="", emoji="⏸️")
+    def __init__(self, player, disabled = False):
+        self.player: Player = player
+        super().__init__(style=ButtonStyle.gray, label="", emoji="⏸️", disabled=disabled)
     
     async def callback(self, interaction: Interaction) -> Coroutine[Any, Any, Any]:
-        await interaction.response.send_message("Pause", ephemeral=True)
+        if self.player.voiceClient.is_playing():
+            self.player.voiceClient.pause()
+            await self.player.controls.draw()
+            # await interaction.response.send_message("Pause", ephemeral=True)
+            await interaction.response.defer()
+
+class ControlsButtonResume(ui.Button):
+    def __init__(self, player):
+        self.player: Player = player
+        super().__init__(style=ButtonStyle.gray, label="", emoji="▶️")
+    
+    async def callback(self, interaction: Interaction) -> Coroutine[Any, Any, Any]:
+        if self.player.voiceClient.is_paused():
+            self.player.voiceClient.resume()
+            await self.player.controls.draw()
+            # await interaction.response.send_message("Resume", ephemeral=True)
+            await interaction.response.defer()
 
 class ControlsButtonLastTrack(ui.Button):
     def __init__(self):
@@ -79,12 +96,22 @@ class Controls():
             description=None,
             color=Color.brand_green()
         )
+        self.addHistoryToEmbed(embed)
         self.addNowPlayingToEmbed(embed)
         self.addQueueToEmbed(embed)
             
         view = ui.View()
         view.add_item(ControlsButtonLastTrack())
-        view.add_item(ControlsButtonPause())
+        if self.player.voiceClient:
+            if self.player.voiceClient.is_playing():
+                view.add_item(ControlsButtonPause(self.player))
+            elif self.player.voiceClient.is_paused():
+                view.add_item(ControlsButtonResume(self.player))
+            else: 
+                view.add_item(ControlsButtonPause(self.player, disabled=True))
+        else: 
+            view.add_item(ControlsButtonPause(self.player, disabled=True))
+
         view.add_item(ControlsButtonStop())
         view.add_item(ControlsButtonNextTrack())
 
@@ -99,8 +126,33 @@ class Controls():
         message = await infoChannel.send(content=None, embed=embed, view=view, suppress_embeds=False)
         self.db.update({'lastMessage': message.id}, Query().id == self.guild.id)
 
+    def addHistoryToEmbed(self, embed: Embed) -> None:
+        limit = 5
+        table = self.db.table("history")
+        history = table.search(Query().guildid == self.guild.id)
+        if not history:
+            print("No history found")
+            return
+
+        embed.add_field(name="📜 History", value="", inline=False)
+        tracks = []
+        users = []
+        durations = []
+        for video in history[-limit:]:
+            tracks.append(f"[{video['title']}](https://www.youtube.com/watch?v={video['id']})")
+            users.append(video["by"])
+            durations.append(video["duration"])
+
+        embed.add_field(name="Track", value="\n".join(tracks), inline=True)
+        embed.add_field(name="By", value="\n".join(users), inline=True)
+        embed.add_field(name="Duration", value="\n".join(durations), inline=True)
+        embed.add_field(name='\u200b', value="",inline=False)
+
     def addNowPlayingToEmbed(self, embed: Embed) -> None: 
-        embed.add_field(name="🎶 Now playing", value="", inline=False)
+        title = "🎶 Now playing"
+        if self.player.voiceClient and self.player.voiceClient.is_paused():
+            title = "🎶 Now playing (PAUSED)"
+        embed.add_field(name=title, value="", inline=False)
 
         if len(self.player.queue) <= 0:
             embed.add_field(name="Track", value=f"-", inline=True)
@@ -111,11 +163,14 @@ class Controls():
         video = self.player.queue[0].data
         embed.add_field(name="Track", value=f"[{video['title']}](https://www.youtube.com/watch?v={video['id']})", inline=True)
         embed.add_field(name="By", value="<username>", inline=True)
-        embed.add_field(name="Duration", value=self.getVideoDuration(video), inline=True)
+        embed.add_field(name="Duration", value=self.player.getVideoDuration(video), inline=True)
 
     def addQueueToEmbed(self, embed: Embed) -> None:
         if len(self.player.queue) < 2:
             return
+
+        embed.add_field(name='\u200b', value="")
+        embed.add_field(name="🗒️ Queue", value="", inline=False)
 
         tracks = []
         users = []
@@ -126,22 +181,12 @@ class Controls():
             video = item.data
             tracks.append(f"[{video['title']}](https://www.youtube.com/watch?v={video['id']})")
             users.append("<username>")
-            durations.append(self.getVideoDuration(video))
+            durations.append(self.player.getVideoDuration(video))
 
-        embed.add_field(name='\u200b', value="")
-        embed.add_field(name="🗒️ Queue", value="", inline=False)
         embed.add_field(name="Track", value="\n".join(tracks), inline=True)
         embed.add_field(name="By", value="\n".join(users), inline=True)
         embed.add_field(name="Duration", value="\n".join(durations), inline=True)
     
-    def getVideoDuration(self, video) -> str:
-        try:
-            duration = str(timedelta(seconds=float(video["formats"][0]["fragments"][0]["duration"])))
-        except:
-            print("Failed to get video duration")
-            duration = 0
-        return duration
-
     async def getChannelLastMessage(self, channel: TextChannel) -> Message: 
         try:
             return await channel.fetch_message(channel.last_message_id)
@@ -158,7 +203,6 @@ class Controls():
         except errors.NotFound:
             return None
 
-
     def getInfoChannel(self) -> TextChannel | None:
         result = self.db.search(Query().id == self.guild.id)
         if not result or 'infoChannel' not in result[0]:
@@ -173,10 +217,12 @@ class Player():
     bot: commands.Bot
     voiceClient: voice_client.VoiceClient = None
     db: TinyDB = None
+    guild: Guild = None
     downloadQueue: list[VideoRequest] = []
     queue: list[Video] = []
     isDownloading = False
     isPlaying = False
+    idleStart = None
     controls: Controls = None
     executable: str
 
@@ -184,7 +230,41 @@ class Player():
         self.executable = executable
         self.bot = bot
         self.db = db
+        self.guild = guild
         self.controls = Controls(self, db, guild)
+        loop = asyncio.get_event_loop()
+        loop.create_task(self.maintenance())
+    
+    async def maintenance(self):
+        print("Begin maintenance")
+        while True:
+            await asyncio.sleep(60)
+            if not self.voiceClient or not self.voiceClient.is_connected():
+                continue
+            print("{}/{}: {}".format(
+                self.voiceClient.channel.guild.name,
+                self.voiceClient.channel.name,
+                len(self.voiceClient.channel.members)
+            ))
+            if len(self.voiceClient.channel.members) <= 1:
+                await self.leaveVoice()
+                continue
+            if not self.isPlaying:
+                if not self.idleStart:
+                    self.idleStart = datetime.now()
+                    print("Idle start")
+                    continue
+                diff = datetime.now() - self.idleStart
+                print(f"Idle for {diff} seconds")
+                if diff.seconds > 600:
+                    await self.leaveVoice()
+
+    async def leaveVoice(self):
+        print("Leaving voice channel")
+        self.voiceClient.stop()
+        await self.voiceClient.disconnect()
+        self.idleStart = None
+        self.isPlaying = False
     
     async def addVideo(self, interaction: Interaction, url: str):
         if not await self.validUrl(interaction, url):
@@ -212,16 +292,22 @@ class Player():
         self.isDownloading = False
     
     async def play(self):
-        await self.controls.draw()
         if self.isPlaying:
+            await self.controls.draw()
             return
         self.isPlaying = True
+        self.idleStart = None
         song = self.queue[0]
         loop = asyncio.get_event_loop()
-        self.voiceClient.play(
-            FFmpegPCMAudio(executable=self.executable, source=song.filename),
-            after =lambda e=None: loop.create_task(self.after_play(e))
-        )
+        try:
+            self.voiceClient.play(
+                FFmpegPCMAudio(executable=self.executable, source=song.filename),
+                after =lambda e=None: loop.create_task(self.after_play(e))
+            )
+        except:
+            self.isPlaying = False
+            raise 
+        await self.controls.draw()
     
     async def after_play(self, error):
         print("I've done it. I played a song")
@@ -229,6 +315,7 @@ class Player():
             raise error
         print("No error during playback")
 
+        self.addHistory(self.queue[0])
         self.queue.pop(0)
         await self.controls.draw()
         self.isPlaying = False
@@ -238,6 +325,28 @@ class Player():
 
         await self.play()
 
+    def addHistory(self, video: Video):
+        history = self.db.table("history")
+        result = history.search(Query().guildid == self.guild.id)
+        if result and result[-1]["id"] == video.data["id"]:
+            return
+
+        history.insert({
+            'guildid': self.guild.id,
+            'id': video.data["id"],
+            'title': video.data["title"],
+            'duration': self.getVideoDuration(video.data),
+            'by': '<username>'
+        })
+
+    def getVideoDuration(self, video) -> str:
+        try:
+            duration = str(timedelta(seconds=float(video["formats"][0]["fragments"][0]["duration"])))
+        except:
+            print("Failed to get video duration")
+            duration = 0
+        return duration
+
     async def validUrl(self, interaction: Interaction, url: str) -> bool:
         if not url.startswith("https://www.youtube.com/watch?v="):
             await interaction.response.send_message(
@@ -246,14 +355,14 @@ class Player():
             return False
         return True
 
-
-    async def connectToVoice(self, interaction) -> bool:
+    async def connectToVoice(self, interaction: Interaction) -> bool:
         if not interaction.user.voice:
             await interaction.response.send_message(f"You are not in a voice channel.", ephemeral=True)
             return False
 
         if not self.voiceClient or not self.voiceClient.is_connected():
             self.voiceClient = await interaction.user.voice.channel.connect()
+            await self.guild.change_voice_state(channel=self.voiceClient.channel, self_deaf=True)
             print("Connected to voice client")
         
         return True

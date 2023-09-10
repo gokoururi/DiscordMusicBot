@@ -16,7 +16,7 @@ THUMBNAIL_URL = os.getenv("thumbnail_url")
 databaseDir = f"{os.path.dirname(__file__)}/database"
 if not os.path.exists(databaseDir):
     os.makedirs(databaseDir)
-db = TinyDB(f'{databaseDir}/guild.json')
+db = TinyDB(f'{databaseDir}/guild.json', indent=4)
 
 bot = commands.Bot(command_prefix=COMMAND_PREFIX, intents=discord.Intents.all())
 
