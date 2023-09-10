@@ -69,9 +69,11 @@ class Controls():
         self.player: Player = player
     
     async def draw(self):
-        print("Drawing controls")
         infoChannel = self.getInfoChannel()
-        print(f"Drawing to channel {infoChannel.name}")
+        if not infoChannel:
+            print("Cannot draw controls: infoChannel undefined.")
+        print(f"Drawing controls to channel '{infoChannel.name}'")
+
         embed = Embed(
             title="Music Player",
             description=None,
@@ -85,19 +87,17 @@ class Controls():
         view.add_item(ControlsButtonPause())
         view.add_item(ControlsButtonStop())
         view.add_item(ControlsButtonNextTrack())
-        myLastMessage = await self.getLastMessage(infoChannel)
-        if myLastMessage == None:
-            message = await infoChannel.send(content=None, embed=embed, view=view, suppress_embeds=False)
-            self.db.update({'lastMessage': message.id}, Query().id == self.guild.id)
+
+        myLastMessage = await self.getMyLastMessage(infoChannel)
+        channelLastMessage = await self.getChannelLastMessage(infoChannel)
+        if channelLastMessage and myLastMessage and channelLastMessage.id == myLastMessage.id:
+            await myLastMessage.edit(content=None, embed=embed, view=view, suppress=False)
             return
 
-        lastMessage = await infoChannel.fetch_message(infoChannel.last_message_id)
-        if lastMessage and lastMessage.id == myLastMessage.id:
-            await lastMessage.edit(content=None, embed=embed, view=view, suppress=False)
-        else:
+        if myLastMessage:
             await myLastMessage.delete()
-            message = await infoChannel.send(content=None, embed=embed, view=view, suppress_embeds=False)
-            self.db.update({'lastMessage': message.id}, Query().id == self.guild.id)
+        message = await infoChannel.send(content=None, embed=embed, view=view, suppress_embeds=False)
+        self.db.update({'lastMessage': message.id}, Query().id == self.guild.id)
 
     def addNowPlayingToEmbed(self, embed: Embed) -> None: 
         embed.add_field(name="🎶 Now playing", value="", inline=False)
@@ -142,7 +142,13 @@ class Controls():
             duration = 0
         return duration
 
-    async def getLastMessage(self, channel: TextChannel) -> Message:
+    async def getChannelLastMessage(self, channel: TextChannel) -> Message: 
+        try:
+            return await channel.fetch_message(channel.last_message_id)
+        except errors.NotFound:
+            return None
+    
+    async def getMyLastMessage(self, channel: TextChannel) -> Message:
         result = self.db.search(Query().id == self.guild.id)
         if not result or 'lastMessage' not in result[0]:
             return None
