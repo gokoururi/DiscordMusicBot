@@ -1,5 +1,5 @@
 import asyncio
-import time
+import time as _time
 import json
 import os
 import re
@@ -79,8 +79,8 @@ class SteamSale(commands.Cog):
             name = self._next_sale.get("name")
             start = self._next_sale.get("start")
             timestr = self._format_time_until(start)
-            ts = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(start))
-            await interaction.response.send_message(f"Next Steam sale: '{name}' starts in {timestr} (at {ts})")
+            ts = _time.strftime("%Y-%m-%d %H:%M:%S UTC", _time.gmtime(start))
+            await interaction.response.send_message(f"Next Steam sale: '{name}' starts in {timestr} (at {ts})", ephemeral=True)
 
         try:
             # avoid duplicate registration
@@ -89,31 +89,89 @@ class SteamSale(commands.Cog):
             except Exception:
                 existing = None
             if existing:
-                return
+                # remove existing command(s) to force re-registration (update option names)
+                try:
+                    self.bot.tree.remove_command("steamsale")
+                except Exception:
+                    pass
+                try:
+                    self.bot.tree.remove_command("steamsale_settime")
+                except Exception:
+                    pass
+                try:
+                    self.bot.tree.remove_command("steamsale_cleartime")
+                except Exception:
+                    pass
 
             cmd = app_commands.Command(name="steamsale", description="Show time until the next big Steam sale", callback=_slash_steamsale)
             self.bot.tree.add_command(cmd)
 
             # register slash command to set manual time
-            async def _slash_settime(interaction: discord.Interaction, time: str, name: Optional[str] = "Manual Sale"):
-                epoch = self._parse_time_string(time)
+            async def _slash_settime(interaction: discord.Interaction, time: Optional[str] = None, timestr: Optional[str] = None, name: Optional[str] = "Manual Sale"):
+                # Accept either 'time' (old remote option) or 'timestr' (new local name).
+                chosen = timestr or time
+                if chosen is None:
+                    await interaction.response.send_message("Could not parse the time. Use ISO-8601 like 2025-12-20T15:00:00Z or 'YYYY-MM-DD HH:MM' (UTC).", ephemeral=True)
+                    return
+                try:
+                    chosen = str(chosen)
+                except Exception:
+                    await interaction.response.send_message("Could not parse the time. Use ISO-8601 like 2025-12-20T15:00:00Z or 'YYYY-MM-DD HH:MM' (UTC).", ephemeral=True)
+                    return
+                epoch = self._parse_time_string(chosen)
                 if epoch is None:
                     await interaction.response.send_message("Could not parse the time. Use ISO-8601 like 2025-12-20T15:00:00Z or 'YYYY-MM-DD HH:MM' (UTC).", ephemeral=True)
                     return
                 self.config["manual_next_sale"] = {"name": name, "start": epoch}
                 _save_config(self.config)
-                ts = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(epoch))
-                await interaction.response.send_message(f"Manual next sale set: '{name}' at {ts}")
+                ts = _time.strftime("%Y-%m-%d %H:%M:%S UTC", _time.gmtime(epoch))
+                await interaction.response.send_message(f"Manual next sale set: '{name}' at {ts}", ephemeral=True)
 
             async def _slash_cleartime(interaction: discord.Interaction):
                 self.config["manual_next_sale"] = None
                 _save_config(self.config)
-                await interaction.response.send_message("Cleared manual next-sale override.")
+                await interaction.response.send_message("Cleared manual next-sale override.", ephemeral=True)
+
+            async def _slash_setchannel(interaction: discord.Interaction, channel: discord.TextChannel):
+                # Must be used in a guild and by an administrator
+                if not interaction.guild:
+                    await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
+                    return
+                if not interaction.user.guild_permissions.administrator:
+                    await interaction.response.send_message("You must be an administrator to use this command.", ephemeral=True)
+                    return
+                guild_id = str(interaction.guild.id)
+                channels = self.config.get("channels") or {}
+                channels[guild_id] = channel.id
+                self.config["channels"] = channels
+                _save_config(self.config)
+                await interaction.response.send_message(f"Configured steamsale announcements to channel {channel.mention} for this server", ephemeral=True)
+
+            async def _slash_unsetchannel(interaction: discord.Interaction):
+                if not interaction.guild:
+                    await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
+                    return
+                if not interaction.user.guild_permissions.administrator:
+                    await interaction.response.send_message("You must be an administrator to use this command.", ephemeral=True)
+                    return
+                guild_id = str(interaction.guild.id)
+                channels = self.config.get("channels") or {}
+                if guild_id in channels:
+                    channels.pop(guild_id, None)
+                    self.config["channels"] = channels
+                    _save_config(self.config)
+                    await interaction.response.send_message("Cleared steamsale announcement channel for this server.", ephemeral=True)
+                else:
+                    await interaction.response.send_message("No steamsale announcement channel configured for this server.", ephemeral=True)
 
             set_cmd = app_commands.Command(name="steamsale_settime", description="Set manual next sale time (admin)", callback=_slash_settime)
             clear_cmd = app_commands.Command(name="steamsale_cleartime", description="Clear manual next sale override (admin)", callback=_slash_cleartime)
+            setchannel_cmd = app_commands.Command(name="steamsale_setchannel", description="Set the channel where sale announcements will be posted (admin)", callback=_slash_setchannel)
+            unsetchannel_cmd = app_commands.Command(name="steamsale_unsetchannel", description="Unset the announcement channel (admin)", callback=_slash_unsetchannel)
             self.bot.tree.add_command(set_cmd)
             self.bot.tree.add_command(clear_cmd)
+            self.bot.tree.add_command(setchannel_cmd)
+            self.bot.tree.add_command(unsetchannel_cmd)
 
             # Wait asynchronously for application_id to be available; do not block startup.
             waited = 0
@@ -126,9 +184,27 @@ class SteamSale(commands.Cog):
                 logger.warning("application_id not set after %s seconds; skipping command sync", timeout)
                 return
 
+            # Attempt to sync commands directly to any configured guilds. This forces
+            # immediate visibility of the slash commands in those servers.
+            channels = self.config.get("channels", {}) or {}
+            synced_any = False
+            for gid in list(channels.keys()):
+                try:
+                    # skip non-numeric keys (e.g. legacy)
+                    if not str(gid).isdigit():
+                        continue
+                    guild_obj = discord.Object(id=int(gid))
+                    await self.bot.tree.sync(guild=guild_obj)
+                    logger.info("SteamSale slash command synced to guild %s", gid)
+                    synced_any = True
+                except Exception as e:
+                    logger.warning("Failed to sync commands to guild %s: %s", gid, e, exc_info=True)
+
+            # If we didn't sync to any guild, fall back to global sync
             try:
-                await self.bot.tree.sync()
-                logger.info("SteamSale slash command synced")
+                if not synced_any:
+                    await self.bot.tree.sync()
+                    logger.info("SteamSale slash command synced globally")
             except Exception as e:
                 logger.warning("Failed to sync application commands: %s", e, exc_info=True)
         except asyncio.CancelledError:
@@ -175,7 +251,7 @@ class SteamSale(commands.Cog):
             try:
                 next_sale = await self._get_next_sale()
                 if next_sale:
-                    now = int(time.time())
+                    now = int(_time.time())
                     start = int(next_sale["start"])
                     started = now >= start
 
@@ -205,8 +281,8 @@ class SteamSale(commands.Cog):
         channels = self.config.get("channels", {}) or {}
         if not channels:
             return
-        ts = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(sale["start"]))
-        content = f"Steam Sale '{sale.get('name')}' has started at {ts}!\nWatch: {YOUTUBE_LINK}"
+        ts = _time.strftime("%Y-%m-%d %H:%M:%S UTC", _time.gmtime(sale["start"]))
+        content = f"{YOUTUBE_LINK}"
         # send announcement to all configured channel IDs
         for key, cid in list(channels.items()):
             try:
@@ -221,7 +297,7 @@ class SteamSale(commands.Cog):
                 logger.exception("Failed to send announcement to channel %s (key=%s)", cid, key)
 
     def _format_time_until(self, epoch: int) -> str:
-        now = int(time.time())
+        now = int(_time.time())
         diff = max(0, epoch - now)
         days, rem = divmod(diff, 86400)
         hours, rem = divmod(rem, 3600)
@@ -282,7 +358,7 @@ class SteamSale(commands.Cog):
         name = self._next_sale.get("name")
         start = self._next_sale.get("start")
         timestr = self._format_time_until(start)
-        ts = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(start))
+        ts = _time.strftime("%Y-%m-%d %H:%M:%S UTC", _time.gmtime(start))
         await ctx.send(f"Next Steam sale: '{name}' starts in {timestr} (at {ts})")
 
     @commands.command(name="steamsale_setchannel", help="Set the channel where sale announcements will be posted. Usage: steamsale_setchannel #channel")
@@ -338,7 +414,7 @@ class SteamSale(commands.Cog):
         # store
         self.config["manual_next_sale"] = {"name": name, "start": epoch}
         _save_config(self.config)
-        ts = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(epoch))
+        ts = _time.strftime("%Y-%m-%d %H:%M:%S UTC", _time.gmtime(epoch))
         await ctx.send(f"Manual next sale set: '{name}' at {ts}")
 
     @commands.command(name="steamsale_cleartime", help="Clear manual next-sale override")
