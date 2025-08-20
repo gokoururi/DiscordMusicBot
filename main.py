@@ -53,6 +53,13 @@ if __name__ == '__main__':
             logger.info("Music cog loaded")
         except Exception as e:
             logger.exception("Failed to load Music cog: %s", e)
+        # Load the SteamSale cog if available
+        try:
+            from cogs.steamsale import SteamSale
+            await bot.add_cog(SteamSale(bot))
+            logger.info("SteamSale cog loaded")
+        except Exception as e:
+            logger.exception("Failed to load SteamSale cog: %s", e)
         await bot.start(DISCORD_TOKEN)
 
     asyncio.run(main())
