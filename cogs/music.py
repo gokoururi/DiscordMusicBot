@@ -64,10 +64,21 @@ class Session:
         await self.download_and_add_to_queue(ctx, download["message"], download["url"])
 
     async def download_and_add_to_queue(self, ctx: commands.Context, message: Message, url: str):
-        filename, data = await YTDLSource.from_url(self.bot.ytdl, url, loop=self.bot.loop)
-        await message.add_reaction("☑️")
-        await message.remove_reaction("⬇️", self.bot.user)
-        self.queue.append({"filename": filename, "data": data})
+        success = True
+        try:
+            filename, data = await YTDLSource.from_url(self.bot.ytdl, url, loop=self.bot.loop)
+        except:
+            success = False
+        
+        if success:
+            await message.add_reaction("☑️")
+            await message.remove_reaction("⬇️", self.bot.user)
+            self.queue.append({"filename": filename, "data": data})
+        else:
+            await message.add_reaction("💀")
+            await message.remove_reaction("⬇️", self.bot.user)
+            logger.error("Failed to download %s", url)
+
         self.download_queue.pop(0)
         self.downloading = False
         logger.info("Download finished: %s", data.get('title'))
