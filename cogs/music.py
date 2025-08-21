@@ -1,4 +1,5 @@
 import asyncio
+import time
 import logging
 from typing import Dict, List, Optional
 
@@ -40,6 +41,10 @@ class Session:
         self.maintenance_task: Optional[asyncio.Task] = None
         self.last_playing_message: Optional[Message] = None
         self.loop_mode: Optional[str] = None
+        # Idle timeout (seconds): leave after 5 minutes of not playing
+        self.idle_timeout_seconds: int = 5 * 60
+        # Timestamp of the last time playback started (or bot join). Used to detect idle periods.
+        self.last_play_time: float = time.time()
         logger.info(f"Session started for guild={voice_client.guild.id}")
 
     async def add_to_download_queue(self, ctx: commands.Context, url: str):
@@ -118,6 +123,8 @@ class Session:
     async def start_playing(self, ctx: commands.Context):
         if not self.queue:
             return
+        # mark playback start time
+        self.last_play_time = time.time()
         song = self.queue[0]
         loop = asyncio.get_event_loop()
         self.voice_client.play(
@@ -141,6 +148,11 @@ class Session:
             self.queue.pop(0)
 
         if len(self.queue) <= 0:
+            # nothing left to play; record last play time so maintenance can detect idle
+            try:
+                self.last_play_time = time.time()
+            except Exception:
+                pass
             return
 
         await self.print_playing_and_queue(ctx)
@@ -163,12 +175,43 @@ class Session:
                     self.voice_client.is_playing(),
                     members,
                 )
+                # disconnect if nobody else is in the channel
                 if members <= 1:
                     logger.info("Nobody left in VC %s. Disconnecting.", self.voice_client.channel.name)
                     self.voice_client.stop()
                     await self.voice_client.disconnect()
+                    # remove session record to avoid stale sessions
+                    try:
+                        self.bot.sessions.pop(self.voice_client.guild.id, None)
+                    except Exception:
+                        pass
                     self.maintenance_task = None
                     break
+
+                # or disconnect if we've been idle (not playing) for longer than the timeout
+                if not self.voice_client.is_playing():
+                    now = time.time()
+                    try:
+                        idle = now - self.last_play_time
+                    except Exception:
+                        idle = None
+                    if idle is not None and idle >= self.idle_timeout_seconds:
+                        logger.info("Idle for %s seconds in VC %s. Disconnecting.", int(idle), self.voice_client.channel.name)
+                        try:
+                            self.voice_client.stop()
+                        except Exception:
+                            pass
+                        try:
+                            await self.voice_client.disconnect()
+                        except Exception:
+                            pass
+                        # remove session record to avoid stale sessions
+                        try:
+                            self.bot.sessions.pop(self.voice_client.guild.id, None)
+                        except Exception:
+                            pass
+                        self.maintenance_task = None
+                        break
             except Exception:
                 logger.exception("Error during maintenance task")
                 break
@@ -193,6 +236,29 @@ class Music(commands.Cog):
     async def leave(self, ctx: commands.Context):
         voice_client = ctx.guild.voice_client
         if voice_client and voice_client.is_connected():
+            # stop playback if any
+            try:
+                if voice_client.is_playing():
+                    voice_client.stop()
+            except Exception:
+                pass
+
+            # cancel maintenance task and remove session record
+            try:
+                session = self.bot.sessions.get(ctx.guild.id)
+                if session:
+                    try:
+                        if session.maintenance_task:
+                            session.maintenance_task.cancel()
+                    except Exception:
+                        pass
+                    try:
+                        self.bot.sessions.pop(ctx.guild.id, None)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
             await voice_client.disconnect()
         else:
             await ctx.send("I'm not connected to a voice channel.")
