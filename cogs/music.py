@@ -186,8 +186,8 @@ class Music(commands.Cog):
             await ctx.send(f"{ctx.author}...you're not connected to a voice channel.")
             return
         channel = ctx.author.voice.channel
-        await channel.connect()
-        await ctx.guild.change_voice_state(channel=channel, self_mute=False, self_deaf=True)
+        # connect and deafen immediately
+        await channel.connect(self_deaf=True)
 
     @commands.command(name='leave', help='Leave channel')
     async def leave(self, ctx: commands.Context):
@@ -216,15 +216,22 @@ class Music(commands.Cog):
         session: Optional[Session] = self.bot.sessions.get(server_id)
 
         if not session:
-            voice_client = await ctx.author.voice.channel.connect()
+            # connect and deafen immediately
+            voice_client = await ctx.author.voice.channel.connect(self_deaf=True)
             session = Session(self.bot, voice_client)
             self.bot.sessions[server_id] = session
         else:
             if not session.voice_client.is_connected():
-                voice_client = await ctx.author.voice.channel.connect()
+                voice_client = await ctx.author.voice.channel.connect(self_deaf=True)
                 session.voice_client = voice_client
             elif session.voice_client.channel != ctx.author.voice.channel:
                 await session.voice_client.move_to(ctx.author.voice.channel)
+                # ensure the bot remains deafened after moving
+                try:
+                    await session.voice_client.guild.change_voice_state(channel=ctx.author.voice.channel, self_mute=False, self_deaf=True)
+                except Exception:
+                    # best-effort; ignore failures
+                    pass
 
         for url in urls:
             await session.add_to_download_queue(ctx, url)
